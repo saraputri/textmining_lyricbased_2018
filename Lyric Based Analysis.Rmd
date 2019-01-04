@@ -1,0 +1,139 @@
+---
+title: "Lyric Based Analysis"
+author: "Sarasati Palawita"
+date: "25 December 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(gutenbergr)
+library(dplyr)
+library(tidytext)
+library(stringr)
+library(e1071)
+library(ggplot2)
+library(tibble)
+library(e1071)
+#summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+lyrics = read.csv("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/test.csv")
+
+#lyrics = readLines("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/testLyrics.txt")
+
+str(lyrics)
+lyrics$genre
+
+```
+#Define the data
+
+```{r}
+
+lyrics$lyrics <- as.character(lyrics$lyrics)
+
+lyrics <- as_tibble(lyrics)
+class(lyrics)
+
+tidy_lyrics <- lyrics %>%
+    unnest_tokens(word, lyrics) %>%
+    count(X, index, song, year, artist, genre, song_length, language, word, sort = TRUE) %>%
+    ungroup()
+total_words <- tidy_lyrics %>%
+  group_by(genre) %>%
+  summarize(total = sum(n))
+tidy_lyrics <- left_join(tidy_lyrics, total_words)
+
+#delete stop words
+data(stop_words)
+tidy_lyrics <- tidy_lyrics %>%
+  anti_join(stop_words)
+
+tidy_lyrics %>%
+  count(word, sort = TRUE)
+
+#tf-idf
+tidy_lyrics <- tidy_lyrics %>%
+  bind_tf_idf(word, genre, n)
+
+
+
+#Let's look at terms with high tf-idf in Jane Austen's works.
+tidy_lyrics %>%
+  select(-total) %>%
+  arrange(desc(tf_idf))
+```
+
+
+
+Split the data 80/20
+```{r}
+# Determine row to split on: split
+split <- round(nrow(tidy_lyrics) * .80)
+#split <- round(nrow(diamonds) * .80)
+# Create train
+train <- tidy_lyrics[1:split, ]
+str(train)
+#train <- diamonds[1:split, ]
+# Create test
+test <- tidy_lyrics[(split + 1):nrow(tidy_lyrics),]
+
+str(test)
+#test <- diamonds[(split + 1):nrow(diamonds),]
+
+```
+Fit the model
+```{r}
+# Fit lm model on train: model
+#linear regresion
+#model <- lm(price ~ ., train)
+#svm
+
+#(l <- sapply(train, function(x) is.factor(x)))
+
+train_dataset<-na.omit(train)
+train_dataset = data.frame(train_dataset)
+
+str(train_dataset)
+svmfit = svm(genre ~ tf + idf + tf_idf, data = train_dataset, kernel = "linear", cost = 10, scale = FALSE)
+svmfit
+#price is variable that we want to predict
+```
+
+Predict on test set 
+```{r}
+
+
+# Predict on test: p
+test
+p <- predict(svmfit, test)
+p
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidytext)
+library(stringr)
+```
+
