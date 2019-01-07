@@ -1,0 +1,229 @@
+---
+title: "MasterThesis2018_TF_IDF"
+author: "Sarasati Palawita"
+date: "27 December 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidytext)
+library(stringr)
+library(e1071)
+library(ggplot2)
+library(tibble)
+library(cleanNLP)
+library(reticulate)
+library(caret)
+library(RTextTools)
+library(readxl)
+library(stringr)
+setwd("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data")
+lyrics_training = read_excel("training.xlsx")
+lyrics_test = read_excel("test.xlsx")
+#lyrics_ = read_excel("cleaned_data.xlsx")
+
+```
+
+Class Distribution 
+```{r}
+barplot(prop.table(table(lyrics_training$genre)),
+        col = rainbow(2),
+        ylim = c(0, 0.7),
+        main = "Class Distribution")
+```
+
+###Ignore - Data Partition
+```{r}
+set.seed(123)
+ind <- sample(2, nrow(lyrics_), replace = TRUE, prob = c(0.7, 0.3))
+train <- lyrics_[ind==1,]
+test <- lyrics_[ind==2,]
+
+# Data for Developing Predictive Model
+table(lyrics_$genre)
+prop.table(table(lyrics_$genre))
+summary(lyrics_)
+
+library(ROSE) 
+under <- ovun.sample(genre~., data=train, N=13700, method = "under")$lyrics_
+table(under$genre)
+summary(under)
+```
+
+Data Pre Processing
+```{r lyrics_completes}
+
+lyrics_training$lyrics <- as.character(lyrics_training$lyrics)
+lyrics_test$lyrics <- as.character(lyrics_test$lyrics)
+lyrics1 = na.omit(lyrics_training)
+lyrics2 = na.omit(lyrics_test)
+
+lyrics1 <- as_tibble(lyrics1) #Convert the lyrics data type from factor to character
+class(lyrics)
+lyrics2 <- as_tibble(lyrics2) #Convert the lyrics data type from factor to character
+class(lyrics2)
+```
+
+To get rid of special characters
+```{r removeSpecialChars}
+# Training data - function to remove special characters
+removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]", " ", x)
+# remove special characters
+lyrics1$lyrics <- sapply(lyrics1$lyrics, removeSpecialChars)
+# convert everything to lower case
+lyrics1$lyrics <- sapply(lyrics1$lyrics, tolower)
+
+# Test data - function to remove special characters
+removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]", " ", x)
+# remove special characters
+lyrics2$lyrics <- sapply(lyrics2$lyrics, removeSpecialChars)
+# convert everything to lower case
+lyrics2$lyrics <- sapply(lyrics2$lyrics, tolower)
+#lyrics <- lyrics[]
+
+```
+
+To get rid of undesirable words
+```{r undesirable_words}
+undesirable_words <- c("chorus", "lyrics", "intro", "clichÃfÂ©s",
+                       "theres", "bridge", "fe0f",
+                       "chorus", "verse", "[chorus]", "[verse]",
+                       "2", 
+                       "4", "ooh", "uurh", "uuh", "pheromone", "poompoom", "3121", 
+                       "matic", " ai ", " ca ", " la ", " na ", 
+                       " da ", " uh ", " tin ", "  ll", "transcription", "YoncÃfÂ©", "BeyoncÃfÂ©")
+
+```
+
+###N-gram
+###Unigram
+```{r}
+#Unigrams - Tokenization
+tidy_lyrics_unigrams1 <- lyrics1 %>%
+    unnest_tokens(word, lyrics) %>%
+    count(index, song, year, artist, genre, word, sort = TRUE) %>%
+    filter(!word %in% undesirable_words) %>%
+    ungroup()
+
+#Unigram - TF-Idf
+tf_idf_lyrics_unigrams1 <- tidy_lyrics_unigrams1 %>%
+  bind_tf_idf(word, genre, n)
+
+#Let's look at TOP 500 tf-idf for each genre
+top500 <- tf_idf_lyrics_unigrams1 %>%
+  select(song, word, n, genre, tf_idf) %>%
+  group_by(genre) %>%
+  top_n(500, tf_idf) %>%
+  slice(1:500)
+
+
+##########
+#Unigrams Test data - Tokenization
+
+tidy_lyrics_unigrams2 <- lyrics2 %>%
+    unnest_tokens(word, lyrics) %>%
+    count(index, song, year, artist, genre, word, sort = TRUE) %>%
+    filter(!word %in% undesirable_words) %>%
+    ungroup()
+
+
+#Unigram - TF-Idf
+tf_idf_lyrics_unigrams2 <- tidy_lyrics_unigrams2 %>%
+  bind_tf_idf(word, genre, n)
+
+
+tf_idf_lyrics_unigrams2 <- tf_idf_lyrics_unigrams2 %>%
+  select(song, word, n, genre, tf_idf)
+
+#Data Split
+#training <- sample_n(top1000, 3500, replace = TRUE)
+#testing <- sample_n(top1000, 1500, replace = TRUE)
+
+
+#Define the x and y for training and testing data
+training = data.frame(x=top500$tf_idf, y=as.factor(top500$genre))
+testing = data.frame(x=tf_idf_lyrics_unigrams2$tf_idf, y=as.factor(tf_idf_lyrics_unigrams2$genre))
+
+#CrossValidation
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+
+#SVM
+svm_Linear <- train(y~., data = training, method = "svmLinear",
+                 trainControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+
+#Predict our model with test dataset
+test_pred <- predict(svm_Linear, testing)
+
+
+#how accurate is our modelPredicting the results
+cm <- confusionMatrix(test_pred, testing$y)
+cm$overall
+cm$table
+```
+###Bigram####
+Bigram - Tokenization
+```{r}
+
+#Bigrams - Tokenization
+tidy_lyrics_bigrams1 <- lyrics1 %>%
+    unnest_tokens(bigram, lyrics, token = "ngrams", n = 2) %>%
+    count(index, song, year, artist, genre, bigram, sort = TRUE) %>%
+    filter(!bigram %in% undesirable_words) %>%
+    ungroup()
+
+#Bigram - TF-Idf
+tf_idf_lyrics_bigrams1 <- tidy_lyrics_bigrams1 %>%
+  bind_tf_idf(bigram, genre, n)
+
+#Let's look at TOP 500 tf-idf for each genre
+top500_bigram <- tf_idf_lyrics_bigrams1 %>%
+  select(song, bigram, n, genre, tf_idf) %>%
+  group_by(genre) %>%
+  top_n(500, tf_idf) %>%
+  slice(1:500)
+
+
+#Bigrams Test data - Tokenization
+
+tidy_lyrics_bigrams2 <- lyrics2 %>%
+    unnest_tokens(bigram, lyrics, token = "ngrams", n = 2) %>%
+    count(index, song, year, artist, genre, bigram, sort = TRUE) %>%
+    filter(!bigram %in% undesirable_words) %>%
+    ungroup()
+
+
+#Bigram - TF-Idf
+tf_idf_lyrics_bigrams2 <- tidy_lyrics_bigrams2 %>%
+  bind_tf_idf(bigram, genre, n)
+
+
+tf_idf_lyrics_bigrams2 <- tf_idf_lyrics_bigrams2 %>%
+  select(song, bigram, n, genre, tf_idf)
+
+#Define the x and y for training and testing data
+training_bi = data.frame(x=top500_bigram$tf_idf, y=as.factor(top500_bigram$genre))
+testing_bi = data.frame(x=tf_idf_lyrics_bigrams2$tf_idf, y=as.factor(tf_idf_lyrics_bigrams2$genre))
+
+#CrossValidation
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+
+#SVM
+svm_Linear <- train(y~., data = training_bi, method = "svmLinear",
+                 trainControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+
+#Predict our model with test dataset
+test_pred <- predict(svm_Linear, testing_bi)
+
+#how accurate is our modelPredicting the results
+cm <- confusionMatrix(test_pred, testing_bi$y)
+cm$overall
+cm$table
+```
+
+
