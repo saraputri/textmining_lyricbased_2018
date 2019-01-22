@@ -1,0 +1,69 @@
+---
+title: "Part3"
+author: "Sarasati Palawita"
+date: "30 December 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidytext) #text mining, unnesting
+library(topicmodels) #the LDA algorithm
+library(tidyr) #gather()
+library(dplyr) #awesome tools
+library(ggplot2) #visualization
+library(kableExtra) #create attractive tables
+library(knitr) #simple table generator
+library(ggrepel) #text and label geoms for ggplot2
+library(gridExtra)
+library(formattable) #color tile and color bar in `kables`
+library(tm) #text mining
+library(circlize) #already loaded, but just being comprehensive
+library(plotly) #interactive ggplot graphs
+library(cleanNLP)
+library("udpipe")
+library("tokenizers")
+
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+MyData <- read.csv("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/test.csv", stringsAsFactors = FALSE)
+MyData$lyrics <- as.character(MyData$lyrics)
+text <- paste(MyData$lyrics, collapse = " ")
+
+#cnlp_init_tokenizers()
+#cnlp_init_udpipe()
+#cnlp_init_spacy()
+#anno <- cnlp_annotate(tf)
+#obj <- cnlp_annotate(text, as_strings = TRUE) #didn't work
+
+udmodel <- udpipe_download_model(language = "english")
+#udmodel
+udmodel_english <- udpipe_load_model(file = "C:/Users/Sarasati Palawita/Documents/english-ewt-ud-2.3-181115.udpipe")
+x <- udpipe(x = text, object =udmodel)
+
+#x <- udpipe_annotate(udmodel_english, x = text)
+x <- as.data.frame(x)
+x
+
+names(x)
+table(x$upos)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
