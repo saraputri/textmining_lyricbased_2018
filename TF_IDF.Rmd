@@ -196,11 +196,16 @@ training_data <- top100 %>%
   select(genre, samp) %>%
   unnest()
 
-datas <- test_top100
+data <- test_top100
 test_data <- test_top100 %>%
   count(song, ids, genre, word, song, n, tf, idf, tf_idf) %>%
   group_by(genre) %>% 
-  top_n(n = 100, wt = tf_idf) 
+  top_n(n = 100, wt = tf_idf) %>% 
+nest() %>%            
+  mutate(n = c(45)) %>% 
+  mutate(samp = map2(data, n, sample_n)) %>% 
+  select(genre, samp) %>%
+  unnest()
 
 #-------------#
 #-----tf_idf value - Mean per song------#
@@ -223,7 +228,7 @@ testing = data.frame(x=test_sources_tidy_mean$tf_idf, y=as.factor(test_sources_t
 #Below are the data for Top 100 value
 training = data.frame(x=training_data$tf_idf, y=as.factor(training_data$genre))
 testing = data.frame(x=test_data$tf_idf, y=as.factor(test_data$genre))
-
+View(testing)
 #5. Run Cross-Validation
 trctrl <- trainControl(method = "repeatedcv",
                        number = 10, 
