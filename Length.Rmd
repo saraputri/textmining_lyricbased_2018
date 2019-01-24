@@ -24,6 +24,7 @@ library(RTextTools)
 library(readxl)
 library(stringr)
 library(tidyr)
+library(mlr) #normalization
 ```
 
 Read the file
@@ -58,21 +59,11 @@ training_data_len <- data_tf %>%
   select(genre, samp) %>%
   unnest()
 
-View(test_data_len)
 #Make a list of training data song
 song_list <- training_data_len$song
 
 test_data_len <- data_tf %>%
   filter(!data_tf$song %in% song_list)
-
-#Data for line analysis
-data <- data.frame(training_data_len)
-write_xlsx(data,"C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/train_data_len.xlsx")
-line_sources = read_excel("train_data_len.xlsx")
-
-data <- data.frame(test_data_len)
-write_xlsx(data,"C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/test_data_len.xlsx")
-test_line_sources = read_excel("test_data_len.xlsx")
 
 ```
 
@@ -97,7 +88,6 @@ test_source$lyrics <- sapply(test_source$lyrics, tolower)
 #lyrics <- lyrics[]
 
 ```
-
 To get rid of undesirable words
 ```{r undesirable_words}
 undesirable_words <- c("chorus", "lyrics", "intro", "clichÃfÂ©s",
@@ -110,44 +100,304 @@ undesirable_words <- c("chorus", "lyrics", "intro", "clichÃfÂ©s",
 
 ```
 
-Count lines per song - 2 - Worked
+Count words per line
 ```{r}
-View(train_source)
-train_source <- data.frame(train_source)
+#1. Save the data to excel format for further analysis
+data <- data.frame(training_data_len)
+write_xlsx(data,"C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/train_data_len.xlsx")
+line_sources = read_excel("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/train_data_len.xlsx")
+data <- data.frame(test_data_len)
+write_xlsx(data,"C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/test_data_len.xlsx")
+test_line_sources = read_excel("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/test_data_len.xlsx")
 
-tidy_line <- train_source %>%
+#2. Assigned as a tibble data 
+class(line_sources)  # it's a tibble (tbl_df)
+names(line_sources)
+class(test_line_sources)  # it's a tibble (tbl_df)
+names(test_line_sources)
+
+#3. Tokenization
+tidy_count_wordline <- line_sources %>%
     unnest_tokens(line, lyrics, token = "lines") %>%
-    count(index, song, year, artist, genre, line, sort = TRUE) %>%
-    ungroup()
+    mutate(id = row_number())
 
-total_count_lines <- tidy_line %>%
+tidy_count_word_per_line <- tidy_count_wordline %>%
+    unnest_tokens(word, line, token = "words") %>%
+    filter(!word %in% undesirable_words) 
+
+test_tidy_count_wordline <- test_line_sources %>%
+    unnest_tokens(line, lyrics, token = "lines") %>%
+    mutate(id = row_number())
+
+test_tidy_count_word_per_line <- test_tidy_count_wordline %>%
+    unnest_tokens(word, line, token = "words") %>%
+    filter(!word %in% undesirable_words)
+
+#4. Count total words per line(line = id), n = total words per line
+total_count_word_per_line <- tidy_count_word_per_line %>% 
+    count(id, song, genre)%>%
+    group_by(song)
+View(total_count_word_per_line)
+
+test_total_count_word_per_line <- test_tidy_count_word_per_line %>% 
+    count(id, song, genre)%>%
+    group_by(song)
+
+#5. Calculate the mean value
+total_count_words <- total_count_word_per_line %>%
+    select(id, song, genre, n) %>%
+    group_by(song, genre) %>%
+    summarize(mean_per_song = mean(n))
+
+total_mean_words_wordline <- total_count_word_per_line %>%
+  select(song, genre, n) %>%
+  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
+  group_by(genre) %>%
+  summarize(total_mean_genres = mean(n))
+
+total_mean_words_wordline_n <- total_count_word_per_line %>%
+  select(song, genre, n, id) %>%
+  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
+  group_by(song, genre) %>%
+  summarize(total_n = sum(n)) %>%
+group_by(song) %>%
+summarize(total_mean_n = mean(total_n))
+
+test_total_count_words <- test_total_count_word_per_line %>%
+    select(song, genre, n) %>%
+    group_by(song, genre) %>%
+    summarize(mean_per_song = mean(n))
+
+test_total_mean_words_wordline <- test_total_count_word_per_line %>%
+  select(song, genre, n) %>%
+  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
+  group_by(genre) %>%
+  summarize(total_mean_genres = mean(n))
+
+test_total_mean_words_wordline_n <- test_total_count_word_per_line %>%
   select(song, genre, n) %>%
   #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
   group_by(song, genre) %>%
-  summarize(total_line = length(n))
+  summarize(total_n = sum(n)) %>%
+group_by(song) %>%
+summarize(total_mean_n = mean(total_n))
 
-total_mean_line_per_song <- tidy_line %>%
+#6. Merge the dataset
+mean_words_per_line <- left_join(total_count_words, total_mean_words_wordline)
+mean_words_per_line <- left_join(mean_words_per_line, total_mean_words_wordline_n)
+test_mean_words_per_line <- left_join(test_total_count_words, test_total_mean_words_wordline)
+test_mean_words_per_line <- left_join(test_mean_words_per_line, test_total_mean_words_wordline_n)
+
+#7. Define the training and testing data
+training_count_wordline <- mean_words_per_line
+testing_count_wordline <- test_mean_words_per_line
+
+View(training_count_wordline)
+#8. Run Cross-Validation
+trctrl <- trainControl(method = "repeatedcv", 
+                       number = 10, 
+                       repeats = 3)
+set.seed(123)
+
+#9. Train the model
+svm_Linear_words_per_line <- train(genre ~total_mean_genres + mean_per_song, 
+                                   data = training_count_wordline,
+                                  method = "svmLinear",   
+                trControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+
+svm_Linear_words_per_line
+
+#10. Predict the model with testing dataset
+test_pred_words_per_line <- predict(svm_Linear_words_per_line, testing_count_wordline)
+
+#11. Check the model accuracy with confusion matrix
+mat_count_wordline <- confusionMatrix(table(test_pred_words_per_line, testing_count_wordline$genre))
+mat_count_wordline$overall
+mat_count_wordline$table
+
+#EXTRA
+
+#Number of words per line
+training_count_wordline %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, mean_per_song), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Total words mean per line", x = "Music Genre", 
+       title = "Total words per line", 
+       subtitle = " ")+
+  ylim(0, 50)
+
+word_length <- testing_count_wordline %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, mean_per_song), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Total words mean per line", x = "Music Genre", 
+       title = "Total words mean per line", 
+       subtitle = " ")+
+  ylim(0, 50)
+
+
+```
+
+Count words per song - 2 - Worked
+```{r}
+#1. Tokenization
+tidy_count_words <- train_source %>%
+    unnest_tokens(word, lyrics) %>%
+    count(index, song, year, artist, genre, word, sort = TRUE) %>%
+   ungroup()
+
+test_tidy_count_words <- test_source %>%
+    unnest_tokens(word, lyrics) %>%
+    count(index, song, year, artist, genre, word, sort = TRUE) %>%
+    ungroup()
+
+#2. Count length
+total_count_words <- tidy_count_words %>%
   select(song, genre, n) %>%
   #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
+  group_by(song, genre) %>%
+  summarize(total_words = sum(n))
+
+test_total_count_words <- test_tidy_count_words %>%
+  select(song, genre, n) %>%
+  group_by(song, genre) %>%
+  summarize(total_words = sum(n))
+
+#3. Calculate mean
+total_mean_words <- tidy_count_words %>%
+  select(song, genre, n) %>%
+  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
+  group_by(song, genre) %>%
+  summarize(total_sum = sum(n))%>%
+  group_by(song) %>%
+  summarize(total_mean_song = mean(total_sum))
+
+total_mean_words_genre <- tidy_count_words %>%
+  select(song, genre, n) %>%
+  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
+  group_by(song, genre) %>%
+  summarize(total_sum = sum(n))%>%
+  group_by(genre) %>%
+  summarize(total_mean_genre = mean(total_sum))
+
+total_count_mean_words <- left_join(total_count_words, total_mean_words)
+total_count_mean_words <- left_join(total_count_mean_words, total_mean_words_genre)
+
+test_total_mean_words <- test_tidy_count_words %>%
+  select(song, genre, n) %>%
+  #filter(song == "blood-sweat-and-tears")%>%
+  group_by(song, genre) %>%
+  summarize(total_sum = sum(n))%>%
+  group_by(song) %>%
+  summarize(total_mean_song = mean(total_sum))
+
+test_total_mean_words_genre <- test_tidy_count_words %>%
+  select(song, genre, n) %>%
+  #filter(song == "blood-sweat-and-tears")%>%
+  group_by(song, genre) %>%
+  summarize(total_sum = sum(n))%>%
+  group_by(genre) %>%
+  summarize(total_mean_genre = mean(total_sum))
+
+test_total_count_mean_words <- left_join(test_total_count_words, test_total_mean_words)
+test_total_count_mean_words <- left_join(test_total_count_mean_words, test_total_mean_words_genre)
+
+#4. Define the training and testing data
+training_count_words <- total_count_mean_words
+testing_count_words <- test_total_count_mean_words
+View(training_count_words)
+
+#5. Run Cross-Validation
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+set.seed(123)
+
+#6. Train the model
+svm_Linear_words_per_song <- train(genre ~ total_words + total_mean_genre, data = training_count_words, method = "svmLinear",
+                 trControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+
+svm_Linear_words_per_song
+
+#7. Predict the model with testing dataset
+test_pred_count_words <- predict(svm_Linear_words_per_song, testing_count_words)
+
+#8. Check the model accuracy with confusion matrix
+mat_count_words <- confusionMatrix(table(test_pred_count_words, testing_count_words$genre))
+mat_count_words$overall
+mat_count_words$table
+
+#EXTRA
+#Boxplot
+total_words <- testing_count_words_div$total_words
+total_mean_lex <- testing_count_words_div$total_mean_lex
+lexical_diversity <- data.frame(total_mean_lex,total_words)
+boxplot(lexical_diversity)
+
+#Number of words per line
+word_length <- testing_count_words %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, total_words), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Total words mean per line", x = "Music Genre", 
+       title = "Total words per line", 
+       subtitle = " ")+
+  ylim(0, 1300)
+
+
+```
+
+Count lines per song - 2 - Worked
+```{r}
+#1. Save the data to excel format for further analysis
+data <- data.frame(training_data_len)
+write_xlsx(data,"C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/train_data_len.xlsx")
+line_sources = read_excel("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/train_data_len.xlsx")
+data <- data.frame(test_data_len)
+write_xlsx(data,"C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/test_data_len.xlsx")
+test_line_sources = read_excel("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data/test_data_len.xlsx")
+
+#2. Assigned as a tibble data 
+class(line_sources)  # it's a tibble (tbl_df)
+names(line_sources)
+class(test_line_sources)  # it's a tibble (tbl_df)
+names(test_line_sources)
+
+#3. Count lines per song - Tokenization
+tidy_line <- line_sources %>%
+    unnest_tokens(line, lyrics, token = "lines") %>%
+    filter(!line %in% undesirable_words) %>%
+    count(index, song, year, artist, genre, line, sort = TRUE) %>%
+    ungroup()
+
+test_tidy_line <- test_line_sources %>%
+    unnest_tokens(line, lyrics, token = "lines") %>%
+    filter(!line %in% undesirable_words) %>%
+    count(index, song, year, artist, genre, line, sort = TRUE) %>%
+    ungroup()
+
+#4. Count total line per song
+total_count_lines <- tidy_line %>%
+  select(song, genre, n) %>%
+  group_by(song, genre) %>%
+  summarize(total_line = sum(n))
+
+test_total_count_lines <- test_tidy_line %>%
+  select(song, genre, n) %>%
+  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
+  group_by(song, genre) %>%
+  summarize(total_line = sum(n))
+
+#5. Calculate total means line per song
+total_mean_line_per_song <- tidy_line %>%
+  select(song, genre, n) %>%
   group_by(song, genre) %>%
   summarize(total_sum = sum(n))%>%
   group_by(genre) %>%
   summarize(total_mean = mean(total_sum))
 
 total_count_mean_lines <- left_join(total_count_lines, total_mean_line_per_song)
-View(total_count_mean_lines)
-
-#Test data
-test_tidy_line <- test_source %>%
-    unnest_tokens(line, lyrics, token = "lines") %>%
-    count(index, song, year, artist, genre, line, sort = TRUE) %>%
-    ungroup()
-
-test_total_count_lines <- test_tidy_line %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_line = length(n))
 
 test_total_mean_line_per_song <- test_tidy_line %>%
   select(song, genre, n) %>%
@@ -158,393 +408,47 @@ test_total_mean_line_per_song <- test_tidy_line %>%
   summarize(total_mean = mean(total_sum))
 
 test_total_count_mean_lines <- left_join(test_total_count_lines, test_total_mean_line_per_song)
-View(test_total_count_mean_lines)
 
-
-#Data Split
+#6. Define the training and testing data
 training_count_lines <- total_count_mean_lines
 testing_count_lines <- test_total_count_mean_lines
 
-#Train our model
-train_dat_count_lines = data.frame(x=training_count_lines$total_mean, y=as.factor(training_count_lines$genre))
-test_dat_count_lines = data.frame(x=testing_count_lines$total_mean, y=as.factor(testing_count_lines$genre))
+#7. Run Cross-Validation
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
 
-trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+set.seed(123)
 
-svm_Linear_count_lines <- train(y ~., data = train_dat_count_lines, method = "svmLinear",
+#8. Train the model
+svm_Linear_lines_per_song <- train(genre ~ total_line + total_mean, data = training_count_lines, method = "svmLinear",
                  trControl=trctrl,
                  preProcess = c("center", "scale"),
                  tuneLength = 10)
 
-svm_Linear_count_lines
+svm_Linear_lines_per_song
 
-#Predict our model with test dataset
-test_pred_count_lines <- predict(svm_Linear_count_lines, test_dat_count_lines)
+#9. Predict the model with testing dataset
+test_pred_count_lines <- predict(svm_Linear_lines_per_song, testing_count_lines)
 
-#how accurate is our modelPredicting the results
-mat_count_lines <- confusionMatrix(test_pred_count_lines, test_dat_count_lines$y)
+#10. Check the model accuracy with confusion matrix
+mat_count_lines <- confusionMatrix(table(test_pred_count_lines, testing_count_lines$genre))
 mat_count_lines$overall
 mat_count_lines$table
 
-```
+#EXTRA
+testing_count_lines %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, total_line), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Total line per song", x = "Music Genre", 
+       title = "Total line per song", 
+       subtitle = " ")+
+  ylim(0, 200)
 
-Count words per song - 2 - Worked
-```{r}
-tidy_count_words <- train_source %>%
-    unnest_tokens(word, lyrics) %>%
-    count(index, song, year, artist, genre, word, sort = TRUE) %>%
-   ungroup()
-
-total_count_words <- tidy_count_words %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_words = length(n))
-#View(total_count_words)
-
-total_mean_words <- tidy_count_words %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_sum = sum(n))%>%
-  group_by(genre) %>%
-  summarize(total_mean = mean(total_sum))
-
-total_count_mean_words <- left_join(total_count_words, total_mean_words)
-View(total_count_mean_words)
-
-#View(total_lyrics_unigrams)
-#Test data
-test_tidy_count_words <- test_source %>%
-    unnest_tokens(word, lyrics) %>%
-    count(index, song, year, artist, genre, word, sort = TRUE) %>%
-    ungroup()
-
-test_total_count_words <- test_tidy_count_words %>%
-  select(song, genre, n) %>%
-  group_by(song, genre) %>%
-  summarize(total_words = sum(n))
-
-
-test_total_mean_words <- test_tidy_count_words %>%
-  select(song, genre, n) %>%
-  #filter(song == "blood-sweat-and-tears")%>%
-  group_by(song, genre) %>%
-  summarize(total_sum = sum(n))%>%
-  group_by(genre) %>%
-  summarize(total_mean = mean(total_sum))
-
-test_total_count_mean_words <- left_join(test_total_count_words, test_total_mean_words)
-View(test_total_count_words)
-
-#Data Split
-training_count_words <- total_count_mean_words
-testing_count_words <- test_total_count_mean_words
-
-#Train our model
-train_dat_count_words = data.frame(x=training_count_words$total_mean, y=as.factor(training_count_words$genre))
-test_dat_count_words = data.frame(x=testing_count_words$total_mean, y=as.factor(testing_count_words$genre))
-
-trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
-
-svm_Linear_count_words <- train(y ~., data = train_dat_count_words, method = "svmLinear",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneLength = 10)
-svm_Linear_count_words
-#Predict our model with test dataset
-test_pred_count_words <- predict(svm_Linear_count_words, test_dat_count_words)
-
-#how accurate is our modelPredicting the results
-mat_count_words <- confusionMatrix(test_pred_count_words, test_dat_count_words$y)
-mat_count_words$overall
-mat_count_words$table
+training_count_lines %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, mean_per_song), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Total words mean per line", x = "Music Genre", 
+       title = "Total words mean per line", 
+       subtitle = " ")+
+  ylim(0, 50)
 
 ```
-
-Count words per line - 2 - Worked
-```{r}
-#Training Data
-class(line_sources)  # it's a tibble (tbl_df)
-names(line_sources)
-class(test_line_sources)  # it's a tibble (tbl_df)
-names(test_line_sources)
-
-tidy_count_wordline <- line_sources %>%
-    unnest_tokens(line, lyrics, token = "lines") %>%
-    mutate(id = row_number())
-
-tidy_count_word_per_line <- tidy_count_wordline %>%
-    unnest_tokens(word, line, token = "words")
-
-total_count_word_per_line <- tidy_count_word_per_line %>% 
-        count(id, song, genre)%>%
-        group_by(song)
-
-total_count_words <- total_count_word_per_line %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_words = sum(n))
-
-total_mean_words <- total_count_word_per_line %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_sum = sum(n))%>%
-  group_by(genre) %>%
-  summarize(total_mean = mean(total_sum))
-
-total_mean_words_per_line <- left_join(total_count_words, total_mean_words)
-View(total_mean_words_per_line)
-
-#Test data
-test_tidy_count_wordline <- test_line_sources %>%
-    unnest_tokens(line, lyrics, token = "lines") %>%
-    mutate(id = row_number())
-
-test_tidy_count_word_per_line <- test_tidy_count_wordline %>%
-    unnest_tokens(word, line, token = "words")
-
-test_total_count_word_per_line <- test_tidy_count_word_per_line %>% 
-        count(id, song, genre)%>%
-        group_by(song)
-
-test_total_count_words <- test_total_count_word_per_line %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_words = sum(n))
-View(total_mean_words)
-
-test_total_mean_words <- test_total_count_word_per_line %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_sum = sum(n))%>%
-  group_by(genre) %>%
-  summarize(total_mean = mean(total_sum))
-
-test_total_mean_words_per_line <- left_join(test_total_count_words, test_total_mean_words)
-
-#Data Split
-training_count_wordline <- total_mean_words_per_line
-testing_count_wordline <- test_total_mean_words_per_line
-View(training_count_wordline)
-#Train our model
-train_dat = data.frame(x=training_count_wordline$total_mean, y=as.factor(training_count_wordline$genre))
-test_dat = data.frame(x=testing_count_wordline$total_mean, y=as.factor(testing_count_wordline$genre))
-View(train_dat)
-
-trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
-
-svm_Linear_words_per_line <- train(y ~., data = train_dat, method = "svmLinear",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneLength = 10)
-
-svm_Linear_words_per_line
-
-#Predict our model with test dataset
-test_pred_words_per_line <- predict(svm_Linear_words_per_line, test_dat)
-
-#how accurate is our modelPredicting the results
-mat_count_wordline <- confusionMatrix(test_pred_words_per_line, test_dat$y)
-mat_count_wordline$overall
-mat_count_wordline$table
-
-```
-
-Lexical Diversity - Mean
-```{r}
-#Train Data
-tidy_count_words_lex_div <- train_source %>%
-    unnest_tokens(word, lyrics) %>%
-    count(index, song, year, artist, genre, word, sort = TRUE) %>%
-    ungroup()
-
-total_count_words_div <- tidy_count_words_lex_div %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_words = length(n))
-#View(total_count_words)
-
-lex_diversity_per_genre_div <- tidy_count_words_lex_div %>%
-  select(song, word, genre, n) %>%
-  group_by(song,genre) %>%
-  summarise(lex_diversity = n_distinct(word)) %>%
-    group_by(genre) %>%
-  summarize(total_mean_lex = mean(lex_diversity))
-
-total_count_mean_words_div <- left_join(total_count_words_div, lex_diversity_per_genre_div)
-View(total_count_mean_words_div)
-
-#Test Data
-test_tidy_count_words_lex <- test_source %>%
-    unnest_tokens(word, lyrics) %>%
-    count(index, song, year, artist, genre, word, sort = TRUE) %>%
-    ungroup()
-
-test_total_count_words <- test_tidy_count_words_lex %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_words = length(n))
-
-test_lex_diversity_per_genre <- test_tidy_count_words_lex %>%
-  select(song, word, genre, n) %>%
-  group_by(song,genre) %>%
-  summarise(test_lex_diversity = n_distinct(word)) %>%
-    group_by(genre) %>%
-  summarize(test_total_mean_lex = mean(test_lex_diversity))
-
-test_total_count_mean_words <- left_join(test_total_count_words, test_lex_diversity_per_genre)
-View(test_total_count_mean_words)
-
-#Data Split
-training_count_words <- total_count_mean_words
-testing_count_words <- test_total_count_mean_words
-
-#Train our model
-train_dat_count_words = data.frame(x=training_count_words$total_mean_lex, y=as.factor(training_count_words$genre))
-test_dat_count_words = data.frame(x=testing_count_words$test_total_mean_lex, y=as.factor(testing_count_words$genre))
-trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
-
-svm_Linear_count_words <- train(y ~., data = train_dat_count_words, method = "svmLinear",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneLength = 10)
-svm_Linear_count_words
-#Predict our model with test dataset
-test_pred_count_words <- predict(svm_Linear_count_words, test_dat_count_words)
-
-#how accurate is our modelPredicting the results
-mat_count_words <- confusionMatrix(test_pred_count_words, test_dat_count_words$y)
-mat_count_words$overall
-mat_count_words$table
-```
-
-Lexical Density - Mean
-```{r}
-
-tidy_count_words_lex_div <- train_source %>%
-    unnest_tokens(word, lyrics) %>%
-    count(index, song, year, artist, genre, word, sort = TRUE) %>%
-    ungroup()
-
-total_count_words_div <- tidy_count_words_lex_div %>%
-  select(song, genre, n) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(song, genre) %>%
-  summarize(total_words = length(n))
-#View(total_count_words)
-
-lex_diversity_per_genre_div <- tidy_count_words_lex_div %>%
-  select(song, word, genre, n) %>%
-  group_by(song,genre) %>%
-  summarise(lex_diversity = n_distinct(word)) %>%
-    group_by(genre) %>%
-  summarize(total_mean_lex = mean(lex_diversity))
-#####
-#Train Data
-tidy_count_words_lex <- train_source %>%
-  unnest_tokens(word, lyrics) %>%
-  group_by(song,genre) %>%
-  summarise(lex_density = n_distinct(word)/n()) %>%
-  arrange(desc(lex_density))
-
-train_count_mean_lex_den <- tidy_count_words_lex %>%
-  #select(song, word, genre, n) %>%
-  group_by(genre) %>%
-  summarize(test_total_mean_lex_den = mean(lex_density))
-
-total_count_mean_words_den <- left_join(tidy_count_words_lex, train_count_mean_lex_den)
-View(total_count_words_den)
-
-#Test Data
-test_tidy_count_words_lex <- test_source %>%
-  unnest_tokens(word, lyrics) %>%
-  group_by(song,genre) %>%
-  summarise(lex_density = n_distinct(word)/n()) %>%
-  arrange(desc(lex_density))
-
-test_count_mean_lex_den <- test_tidy_count_words_lex %>%
-  #select(song, word, genre, n) %>%
-  group_by(genre) %>%
-  summarize(test_total_mean_lex_den = mean(lex_density))
-
-test_total_count_mean_words_den <- left_join(test_tidy_count_words_lex, test_count_mean_lex_den)
-View(test_total_count_mean_words_den)
-
-
-#Data Split
-training_count_words <- tidy_count_words_lex
-testing_count_words <- test_tidy_count_words_lex
-
-#Train our model
-train_dat_count_words = data.frame(x=training_count_words$lex_density, y=as.factor(training_count_words$genre))
-test_dat_count_words = data.frame(x=testing_count_words$lex_density, y=as.factor(testing_count_words$genre))
-
-trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
-
-svm_Linear_lexical_density <- train(y ~., data = train_dat_count_words, method = "svmLinear",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneLength = 10)
-svm_Linear_lexical_density
-#Predict our model with test dataset
-test_pred_lexical_density <- predict(svm_Linear_lexical_density, test_dat_count_words)
-
-#how accurate is our modelPredicting the results
-mat_count_words <- confusionMatrix(test_pred_lexical_density, test_dat_count_words$y)
-mat_count_words$overall
-mat_count_words$table
-
-```
-
-Deleetd - Maybe-- 
-```{r}
-#Lines per song
-Country.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Country"], "\r\n"))# see the 50 lines in the first lyric
-Electronic.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Electronic"], "\r\n"))# see the 50 lines in the first lyric
-Pop.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Pop"], "\r\n"))# see the 50 lines in the first lyric
-Rock.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Rock"], "\r\n"))# see the 50 lines in the first lyric
-Folk.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Folk"], "\r\n"))# see the 50 lines in the first lyric
-Hiphop.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Hip-Hop"], "\r\n"))# see the 50 lines in the first lyrictrain_source.vec
-Indie.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Indie"], "\r\n"))# see the 50 lines in the first lyric
-Jazz.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Jazz"], "\r\n"))# see the 50 lines in the first lyric
-Metal.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "Metal"], "\r\n"))# see the 50 lines in the first lyric
-RB.vec = unlist(str_split(line_sources$lyrics[line_sources$genre == "R&B"], "\r\n"))# see the 50 lines in the first lyric
-Country_line_len <- length(Country.vec)
-Electronic_line_len <- length(Electronic.vec)
-Pop_line_len <- length(Pop.vec)
-Rock_line_len <- length(Rock.vec)
-Folk_line_len <- length(Folk.vec)
-Hiphop_line_len <- length(Hiphop.vec)
-Indie_line_len <- length(Indie.vec)
-Jazz_line_len <- length(Jazz.vec)
-Metal_line_len <- length(Metal.vec)
-RB_line_len <- length(RB.vec)
-
-total_lines_per_genre <- c(Country_line_len, Electronic_line_len, Folk_line_len, Hiphop_line_len, Indie_line_len, Jazz_line_len, Metal_line_len, Pop_line_len, RB_line_len, Rock_line_len)
-genre <- c("Country", "Electronic", "Folk", "Hip_Hop", "Indie", "Jazz", "Metal", "Pop", "R&B", "Rock")
-total_song_per_genre <- total_song
-
-lines_per_genre <- data.frame(genre, total_lines_per_genre, total_song)
-View(lines_per_genre)
-training_mean_words_per_line <- lines_per_genre %>%
-  group_by(genre) %>%
-  summarize(mean_per_genre = total_lines_per_genre / total_song)
-View(training_mean_words_per_line)
-
-
-line_sources %>%
-  inner_join(train_source.vec)
-
-pop %>%
-  inner_join(hiphop)
-
-length(train_source.vec)  # just count the number of lines in the first lyric (50)
-```
-

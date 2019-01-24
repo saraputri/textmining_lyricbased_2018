@@ -1,0 +1,280 @@
+---
+title: "Lexical Analysis"
+author: "Sarasati Palawita"
+date: "4 January 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)  # to read Excel files
+library(stringr)
+library(writexl)
+library(purrr)
+library(dplyr)
+library(tidytext)
+library(stringr)
+library(e1071)
+library(ggplot2)
+library(tibble)
+library(cleanNLP)
+library(reticulate)
+library(caret)
+library(RTextTools)
+library(readxl)
+library(stringr)
+library(tidyr)
+```
+Read the file
+```{r lyr}
+setwd("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data")
+cleaned_data = read_excel("cleaned_data_no_duplicate.xlsx")
+```
+
+Data Partition
+```{r}
+cleaned_data$lyrics <- as.character(cleaned_data$lyrics)
+cleaned_data = na.omit(cleaned_data)
+cleaned_data <- as_tibble(cleaned_data)
+class(cleaned_data)
+
+data <- cleaned_data
+data_tf <- cleaned_data %>%
+  group_by(genre) %>% 
+  nest() %>%            
+  mutate(n = c(1250)) %>% 
+  mutate(samp = map2(data, n, sample_n)) %>% 
+  select(genre, samp) %>%
+  unnest()
+
+data <- data_tf
+training_data_len <- data_tf %>%
+  group_by(genre) %>% 
+  nest() %>%            
+  mutate(n = c(875)) %>% 
+  mutate(samp = map2(data, n, sample_n)) %>% 
+  select(genre, samp) %>%
+  unnest()
+
+#Make a list of training data song
+song_list <- training_data_len$song
+
+test_data_len <- data_tf %>%
+  filter(!data_tf$song %in% song_list)
+
+```
+
+To get rid of special characters
+```{r removeSpecialChars}
+train_source <- training_data_len
+test_source <- test_data_len
+str(train_source)
+# Training data - function to remove special characters
+removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]", " ", x)
+# remove special characters
+train_source$lyrics <- sapply(train_source$lyrics, removeSpecialChars)
+# convert everything to lower case
+train_source$lyrics <- sapply(train_source$lyrics, tolower)
+
+# Test data - function to remove special characters
+removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]", " ", x)
+# remove special characters
+test_source$lyrics <- sapply(test_source$lyrics, removeSpecialChars)
+# convert everything to lower case
+test_source$lyrics <- sapply(test_source$lyrics, tolower)
+#lyrics <- lyrics[]
+
+```
+
+To get rid of undesirable words
+```{r undesirable_words}
+undesirable_words <- c("chorus", "lyrics", "intro", "clichÃfÂ©s",
+                       "theres", "bridge", "fe0f",
+                       "chorus", "verse", "[chorus]", "[verse]",
+                       "2", "2x", "3x", "1x",
+                       "4", "ooh", "uurh", "uuh", "pheromone", "poompoom", "3121", 
+                       "matic", " ai ", " ca ", " la ", " na ", 
+                       " da ", " uh ", " tin ", "  ll", "transcription", "YoncÃfÂ©", "BeyoncÃfÂ©")
+
+```
+
+Lexical Diversity - Mean
+```{r}
+#1. Lexical Diversity - Tokenization
+tidy_count_words_lex_div <- train_source %>%
+    unnest_tokens(word, lyrics) %>%
+    filter(!word %in% undesirable_words) %>%
+    count(index, song, year, artist, genre, word, sort = TRUE) %>%
+    ungroup()
+
+total_count_words_div <- tidy_count_words_lex_div %>%
+    select(song, genre, n) %>%
+    group_by(song, genre) %>%
+    summarize(total_words = length(n))
+View(total_count_words_div)
+test_tidy_count_words_lex <- test_source %>%
+    unnest_tokens(word, lyrics) %>%
+    filter(!word %in% undesirable_words) %>%
+    count(index, song, year, artist, genre, word, sort = TRUE) %>%
+    ungroup()
+
+test_total_count_words <- test_tidy_count_words_lex %>%
+    select(song, genre, n) %>%
+    group_by(song, genre) %>%
+    summarize(total_words = length(n))
+
+#2. Get the unique words score or lexical diversity score
+#3. Get the mean value and combine the mean value with the song
+lex_diversity_per_genre_div <- tidy_count_words_lex_div %>%
+    select(song, word, genre, n) %>%
+    group_by(song,genre) %>%
+    summarise(lex_diversity = n_distinct(word)) %>%
+    group_by(genre) %>%
+    summarize(total_mean_lex = mean(lex_diversity))
+
+total_count_mean_words_div <- left_join(total_count_words_div, lex_diversity_per_genre_div)
+
+test_lex_diversity_per_genre_div <- test_tidy_count_words_lex %>%
+    select(song, word, genre, n) %>%
+    group_by(song,genre) %>%
+    summarise(test_lex_diversity = n_distinct(word)) %>%
+    group_by(genre) %>%
+    summarize(total_mean_lex = mean(test_lex_diversity))
+
+test_total_count_mean_words_div <- left_join(test_total_count_words, test_lex_diversity_per_genre_div)
+
+#4. Define the training and testing data
+training_count_words_div <- total_count_mean_words_div
+testing_count_words_div <- test_total_count_mean_words_div
+
+#5. Run Cross-Validation
+trctrl <- trainControl(method = "repeatedcv", 
+                       number = 10, 
+                       repeats = 3
+                       )
+set.seed(123)
+
+#6. Train the model
+svm_Linear_div <- train(genre ~ total_words + total_mean_lex, data = training_count_words_div, method = "svmLinear",
+                 trControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+svm_Linear_div
+
+#7. Predict the model with testing dataset
+test_pred_count_words <- predict(svm_Linear_div, testing_count_words_div)
+
+#8. Check the model accuracy with confusion matrix
+mat_count_words_div <- confusionMatrix(table(test_pred_count_words, testing_count_words_div$genre)) 
+mat_count_words$overall
+mat_count_words$table
+
+#EXTRA
+#Boxplot
+total_words <- testing_count_words_div$total_words
+total_mean_lex <- testing_count_words_div$total_mean_lex
+lexical_diversity <- data.frame(total_mean_lex,total_words)
+boxplot(lexical_diversity)
+
+#Number of unique words per song
+unique_words <- testing_count_words_div %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, total_words), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Length of unique words", x = "Music Genre", 
+       title = "Length of unique words of song lyrics per music genre", 
+       subtitle = " ")+
+  ylim(0, 600)
+
+mean_unique_words <- testing_count_words_div %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, total_mean_lex), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Mean of unique words", x = "Music Genre", 
+       title = "Mean of unique words of song lyrics per music genre", 
+       subtitle = " ")+
+  ylim(0, 600)
+
+```
+
+Lexical Density - Mean
+```{r}
+#1. Lexical Density - Tokenization 
+#2. Get the lexical density score
+tidy_count_words_lex <- train_source %>%
+  unnest_tokens(word, lyrics) %>%
+  group_by(song,genre) %>%
+  summarise(lex_density = n_distinct(word)/n()) %>%
+  arrange(desc(lex_density))
+
+test_tidy_count_words_lex <- test_source %>%
+  unnest_tokens(word, lyrics) %>%
+  group_by(song,genre) %>%
+  summarise(lex_density = n_distinct(word)/n()) %>%
+  arrange(desc(lex_density))
+
+
+#3. Get the mean value and combine the mean value with the song
+train_count_mean_lex_den <- tidy_count_words_lex %>%
+  #select(song, word, genre, n) %>%
+  group_by(genre) %>%
+  summarize(total_mean_lex_den = mean(lex_density))
+
+total_count_mean_words_den <- left_join(tidy_count_words_lex, train_count_mean_lex_den)
+
+test_count_mean_lex_den <- test_tidy_count_words_lex %>%
+  #select(song, word, genre, n) %>%
+  group_by(genre) %>%
+  summarize(total_mean_lex_den = mean(lex_density))
+
+test_total_count_mean_words_den <- left_join(test_tidy_count_words_lex, test_count_mean_lex_den)
+
+#4. Define the training and testing data
+training_count_words_den <- total_count_mean_words_den
+testing_count_words_den <- test_total_count_mean_words_den
+
+#5. Run Cross-Validation
+trctrl <- trainControl(method = "repeatedcv", 
+                       number = 10, 
+                       repeats = 3)
+
+set.seed(123)
+
+#6. Train the model
+svm_Linear_den <- train(genre ~ lex_density + total_mean_lex_den, data = training_count_words_den, method = "svmLinear",
+                 trControl=trctrl,
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10)
+svm_Linear_den
+
+#7. Predict the model with testing dataset
+test_pred_count_words_den <- predict(svm_Linear_den, testing_count_words_den)
+
+#8. Check the model accuracy with confusion matrix
+mat_count_words <- confusionMatrix(table(test_pred_count_words_den, testing_count_words_den$genre))
+mat_count_words$overall
+mat_count_words$table
+
+#EXTRA
+#Boxplot
+lex_density <- testing_count_words_den$lex_density
+total_mean_lex_den <- testing_count_words_den$total_mean_lex_den
+lexical_density <- data.frame(total_mean_lex_den,lex_density)
+boxplot(lexical_density)
+
+#Number of unique words per song
+lexical_density_word <- testing_count_words_div %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, lex_density), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Length of lexical density ", x = "Music Genre", 
+       title = "Length of lexical density per music genre", 
+       subtitle = " ")+
+  ylim(0, 2)
+
+mean_lexical_density <- testing_count_words_div %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, total_mean_lex), fill = "steelblue", alpha = 0.7) +
+  labs(y = "Mean of unique words", x = "Music Genre", 
+       title = "Mean of unique words of song lyrics per music genre", 
+       subtitle = " ")+
+  ylim(0, 600)
+
+```
