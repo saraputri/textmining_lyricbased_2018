@@ -7,37 +7,31 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidytext) #text mining, unnesting
-library(topicmodels) #the LDA algorithm
-library(tidyr) #gather()
-library(dplyr) #awesome tools
-library(ggplot2) #visualization
-library(kableExtra) #create attractive tables
-library(knitr) #simple table generator
-library(ggrepel) #text and label geoms for ggplot2
-library(gridExtra)
-library(formattable) #color tile and color bar in `kables`
-library(tm) #text mining
-library(circlize) #already loaded, but just being comprehensive
-library(plotly) #interactive ggplot graphs
+library(tidytext) #Text mining, unnesting
+library(topicmodels) #LDA algorithm
+library(dplyr)
+library(tm) #Text mining
 library(cleanNLP)
-library("udpipe") #NLP Post Tagging
-library("tokenizers")
-library(readxl)  # to read Excel files
+library(readxl)  #To read Excel files
 library(stringr)
 library(writexl)
 library(purrr)
 library(lessR) #Merge function
 library(tidyverse)
-
-
 library(e1071)
+library(caret) #Cross-Validation
 
-library(caret) # for cv
-
+#Visualization
+library(ggplot2) #Visualization
+library(kableExtra) #Create attractive tables
+library(knitr) #Simple table generator
+library(ggrepel) #Text and label geoms for ggplot2
+library(gridExtra)
+library(formattable) #Color tile and color bar in `kables`
+library(plotly) #interactive ggplot graphs
 ```
 
-Coulor
+Color
 ```{r}
 #define some colors to use throughout
 my_colors <- c("#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#D55E00", "#D65E00")
@@ -89,10 +83,10 @@ word_chart <- function(data, input, title) {
 }
 ```
 
-File
+Retrieve Data
 ```{r cars}
 setwd("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data")
-cleaned_data = read_excel("cleaned_data_no_duplicate.xlsx")
+cleaned_data = read_excel("cleaned_data.xlsx")
 ```
 
 Data Partition
@@ -102,37 +96,34 @@ cleaned_data = na.omit(cleaned_data)
 cleaned_data <- as_tibble(cleaned_data)
 class(cleaned_data)
 
-data <- cleaned_data
-
-data_tf <- cleaned_data %>%
-  group_by(genre) %>% 
-  nest() %>%            
-  mutate(n = c(1250)) %>% 
-  mutate(samp = map2(data, n, sample_n)) %>% 
-  select(genre, samp) %>%
-  unnest()
-
-data <- data_tf
-training_data_len <- data_tf %>%
-  group_by(genre) %>% 
-  nest() %>%            
-  mutate(n = c(875)) %>% 
-  mutate(samp = map2(data, n, sample_n)) %>% 
-  select(genre, samp) %>%
-  unnest()
-
-View(test_data_len)
-#Make a list of training data song
-song_list <- training_data_len$song
-
-test_data_len <- data_tf %>%
-  filter(!data_tf$song %in% song_list)
+train_source <- cleaned_data
 ```
+
+Data Conditioning
+```{r lyrics_song$lyrics}
+# function to expand contractions in an English-language source
+
+fix.contractions <- function(doc) {
+  # "won't" is a special case as it does not expand to "wo not"
+  doc <- gsub("won't", "will not", doc)
+  doc <- gsub("can't", "can not", doc)
+  doc <- gsub("n't", " not", doc)
+  doc <- gsub("'ll", " will", doc)
+  doc <- gsub("'re", " are", doc)
+  doc <- gsub("'ve", " have", doc)
+  doc <- gsub("'m", " am", doc)
+  doc <- gsub("'d", " would", doc)
+  # 's could be 'is' or could be possessive: it has no expansion
+  doc <- gsub("'s", "", doc)
+  return(doc)
+}
+train_source$lyrics <- sapply(train_source$lyrics, fix.contractions)
+test_source$lyrics <- sapply(test_source$lyrics, fix.contractions)
+```
+
 
 To get rid of special characters
 ```{r removeSpecialChars}
-train_source <- training_data_len
-test_source <- test_data_len
 str(train_source)
 # Training data - function to remove special characters
 removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]", " ", x)
@@ -141,13 +132,6 @@ train_source$lyrics <- sapply(train_source$lyrics, removeSpecialChars)
 # convert everything to lower case
 train_source$lyrics <- sapply(train_source$lyrics, tolower)
 
-# Test data - function to remove special characters
-removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]", " ", x)
-# remove special characters
-test_source$lyrics <- sapply(test_source$lyrics, removeSpecialChars)
-# convert everything to lower case
-test_source$lyrics <- sapply(test_source$lyrics, tolower)
-#lyrics <- lyrics[]
 ```
 
 To get rid of undesirable words
@@ -162,78 +146,9 @@ undesirable_words <- c("chorus", "lyrics", "intro", "clichÃfÂ©s",
 
 ```
 
-Data Partition
-```{r}
-cleaned_data$lyrics <- as.character(cleaned_data$lyrics)
-cleaned_data = na.omit(cleaned_data)
-cleaned_data <- as_tibble(cleaned_data)
-class(cleaned_data)
-
-data <- cleaned_data
-
-data_tf <- cleaned_data %>%
-  group_by(genre) %>% 
-  nest() %>%            
-  mutate(n = c(100)) %>% 
-  mutate(samp = map2(data, n, sample_n)) %>% 
-  select(genre, samp) %>%
-  unnest()
-
-#To get rid some character
-train_source <- data_tf
-
-# Training data - function to remove special characters
-removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]", " ", x)
-# remove special characters
-train_source$lyrics <- sapply(train_source$lyrics, removeSpecialChars)
-# convert everything to lower case
-train_source$lyrics <- sapply(train_source$lyrics, tolower)
-###
-
-  training_data_pop <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Pop")
-  
-  training_data_rock <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Rock")
-  
-  training_data_jazz <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Jazz")
-  
-  training_data_metal <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Metal")
-  
-  training_data_indie <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Indie")
-  
-  training_data_folk <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Folk")
-  
-  training_data_electro <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Electronic")
-  
-  training_data_hiphop <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Hip_Hop")
-  
-  training_data_rb <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "R&B")
-  
-  training_data_country <- data_tf %>%
-  group_by(genre) %>% 
-  filter(genre == "Country")
-```
-
 LDA
 ```{r}
-#Unigrams - Tokenization
+#1. Unigrams - Tokenization
 tidy_lyrics_lda <- train_source %>%
     unnest_tokens(word, lyrics) %>%
     filter(nchar(word) > 2) %>%
@@ -243,7 +158,7 @@ tidy_lyrics_lda <- train_source %>%
     mutate(id = row_number()) %>%
     count(id, index, song, year, artist, genre, word, sort = TRUE) %>%
     ungroup()
-    
+
 tidy_lyrics_lda %>%
   group_by(artist) %>%
   #get the word count and doc count per source
@@ -260,29 +175,29 @@ tidy_lyrics_lda %>%
          genre = color_tile("lightgreen","lightgreen")(genre)) %>%
   my_kable_styling("All Sources Stats")
 
-#Create the DTM and set the variables
-#Change column name
-  colnames(tidy_lyrics_lda) <- c("id", "index", "document", "year", "artist", "genre", "word", "n")
-#this time use the dataset with 10 sources
+#2. Create the DTM and set the variables
+#2.1 Change column name
+  colnames(tidy_lyrics_lda) <- c("id", "index", "document", 
+                               "year", "artist", "genre", "word", "n")
+
+#2.2 Create DTM
   all_sources_dtm_balanced <- tidy_lyrics_lda %>%
   cast_dtm(document, word, n)
+  
+#2.3 Set the variables
+  source_dtm <- all_sources_dtm_balanced
+  source_tidy <- tidy_lyrics_lda
 
-source_dtm <- all_sources_dtm_balanced
-source_tidy <- tidy_lyrics_lda
+  k <- 10 #number of topics chosen to match the number of genres
+  seed = 1234 #make it repeatable
+  
+#3. Create LDA Model
+  lda <- LDA(source_dtm, k = k, method = "VEM", control = list(seed = seed))
 
-k <- 10 #number of topics chosen to match the number of genres
-num_words <- 10 #number of words we want to see in each topic
-seed = 1234 #make it repeatable
-#same as before
-lda <- LDA(source_dtm, k = k, method = "GIBBS", control = list(seed = seed))
-
-
-#Identify Themes with Top Words
-num_words <- 10 #number of words to visualize
-
-#create function that accepts the lda model and num word to display
+#4. Create function that accepts the lda model and num word to display
+  ##Identify Themes with Top Words
+  num_words <- 10 #number of words to visualize
 top_terms_per_topic <- function(lda_model, num_words) {
-
   #tidy LDA object to get word, topic, and probability (beta)
   topics_tidy <- tidy(lda_model, matrix = "beta")
 
@@ -302,18 +217,14 @@ top_terms_per_topic <- function(lda_model, num_words) {
   #call the word_chart function you built in prep work
   word_chart(top_terms, top_terms$term, title)
 }
-#call the function you just built!
-top_terms_per_topic(lda, num_words)
 
-#call the function you just built!
+#5. Call the function
 top_terms_per_topic(lda, num_words)
 ```
 
-Classify Documents
 Chord Diagram - Circulized Diagram
 ```{r}
-#using tidy with gamma gets document probabilities into topic
-#but you only have document, topic and gamma
+#1. Gets genre probabilities into topic by using tidy with gamma 
 source_topic_relationship <- tidy(lda, matrix = "gamma") %>%
   #join to orig tidy data by doc to get the source field
   inner_join(tidy_lyrics_lda, by = "document") %>%
@@ -326,7 +237,7 @@ source_topic_relationship <- tidy(lda, matrix = "gamma") %>%
   #removing gamma created duplicates so remove them
   distinct()
 
-#relabel topics to include the word Topic
+#2. Relabel topics to include the word Topic
 source_topic_relationship <- tidy(lda, matrix = "gamma") %>%
   #join to the tidy form to get the genre field
   inner_join(source_tidy, by = "document") %>%
@@ -336,24 +247,22 @@ source_topic_relationship <- tidy(lda, matrix = "gamma") %>%
   mutate(mean = mean(gamma)) %>%
   select(genre, topic, mean) %>%
   ungroup() %>%
-  #re-label topics
   mutate(topic = paste("Topic", topic, sep = " ")) %>%
   distinct()
 
-circos.clear() #very important! Reset the circular layout parameters
-#this is the long form of grid.col just to show you what I'm doing
-#you can also assign the genre names individual colors as well
+circos.clear() #Reset the circular layout parameters
+
 grid.col = c("Topic 1" = "grey", "Topic 2" = "grey", "Topic 3" = "grey",
              "Topic 4" = "grey", "Topic 5" = "grey", "Topic 6" = "grey",
              "Topic 7" = "grey", "Topic 8" = "grey", "Topic 9" = "grey", "Topic 10" = "grey")
 
+#3. Create the circulized graph
 #set the gap size between top and bottom halves set gap size to 15
 circos.par(gap.after = c(rep(5, length(unique(source_topic_relationship[[1]])) - 1), 15,
                          rep(5, length(unique(source_topic_relationship[[2]])) - 1), 15))
 chordDiagram(source_topic_relationship,  grid.col = grid.col, annotationTrack = "grid",
              preAllocateTracks = list(track.height = max(strwidth(unlist(dimnames(source_topic_relationship))))))
-#go back to the first track and customize sector labels
-#use niceFacing to pivot the label names to be perpendicular
+
 circos.track(track.index = 1, panel.fun = function(x, y) {
   circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index,
               facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
@@ -363,10 +272,11 @@ title("Relationship Between Topic and Genre")
 
 TOP Genre
 ```{r}
+#1. Define how many document(songs)
 number_of_documents = 10 #number of top docs to view
-title <- paste("LDA Top Documents for", k, "Topics")
+title <- paste("LDA Top Genre for", k, "Topics")
 
-#create tidy form showing topic, document and its gamma value
+#2. create tidy form showing topic, document and its gamma value
 topics_tidy <- tidy(lda, matrix = "gamma")
 
 top_documents <- topics_tidy %>%
@@ -382,7 +292,7 @@ top_documents <- topics_tidy %>%
 title <- paste("LDA Top Documents for", k, "Topics")
 word_chart(top_documents, top_documents$document, title)
 
-#TOP Genre
+#3. Pass the Top Documents value to TOP Genre
 
 title <- paste("Genre for Top Song for", k, "Topics")
 
@@ -405,8 +315,7 @@ word_chart(top_genre, top_genre$genre, title)
 Recomended Genre per Topic
 ```{r}
   #this function can be used to show genre and artist via passing the "type"
-  #this function can be used to show genre and source via passing the "type"
-top_items_per_topic <- function(lda_model, source_tidy, type) {
+  top_items_per_topic <- function(lda_model, source_tidy, type) {
   #get the tidy version by passing gamma for the per document per topic probs
   document_lda_gamma <- tidy(lda_model, matrix = "gamma") %>%
   #join to the tidy form to get source and genre
@@ -444,7 +353,7 @@ ggplot(aes(1, 1, label = label, fill = factor(topic) )) +
   #make sure the labels don't overlap
   geom_label_repel(nudge_x = .2,
                    direction = "y",
-                   box.padding = 0.1,
+                   box.padding = 0.5,
                    segment.color = "transparent",
                    size = 3) +
   facet_grid(~topic) +
@@ -460,131 +369,5 @@ ggplot(aes(1, 1, label = label, fill = factor(topic) )) +
 }
 
 top_items_per_topic(lda, source_tidy, "genre")
-traceback()
-```
-
-POS - Part of speech - Didn't work
-```{r }
-training_data_pop$lyrics <- as.character(training_data_pop$lyrics)
-text_pop <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_rock$lyrics <- as.character(training_data_rock$lyrics)
-text_rock <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_jazz$lyrics <- as.character(training_data_jazz$lyrics)
-text_jazz <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_indie$lyrics <- as.character(training_data_indie$lyrics)
-text_indie <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_electro$lyrics <- as.character(training_data_electro$lyrics)
-text_electro <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_hiphop$lyrics <- as.character(training_data_hiphop$lyrics)
-text_hihop <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_rb$lyrics <- as.character(training_data_rb$lyrics)
-text_rb <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_metal$lyrics <- as.character(training_data_metal$lyrics)
-text_metal <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_folk$lyrics <- as.character(training_data_folk$lyrics)
-text_folk <- paste(training_data_pop$lyrics, collapse = " ")
-
-training_data_country$lyrics <- as.character(training_data_country$lyrics)
-text_country <- paste(training_data_pop$lyrics, collapse = " ")
-
-#cnlp_init_tokenizers()
-#cnlp_init_udpipe()
-#cnlp_init_spacy()
-#anno <- cnlp_annotate(tf)
-#obj <- cnlp_annotate(text, as_strings = TRUE) #didn't work
-
-udmodel <- udpipe_download_model(language = "english")
-#udmodel
-udmodel_english <- udpipe_load_model(file = "C:/Users/Sarasati Palawita/Documents/english-ewt-ud-2.3-181115.udpipe")
-pos_annotated_pop <- udpipe(x = text_pop, object =udmodel)
-pos_annotated_rock <- udpipe(x = text_rock, object =udmodel)
-pos_annotated_jazz <- udpipe(x = text_jazz, object =udmodel)
-pos_annotated_indie <- udpipe(x = text_indie, object =udmodel)
-pos_annotated_electro <- udpipe(x = text_electro, object =udmodel)
-pos_annotated_hiphop <- udpipe(x = text_hihop, object =udmodel)
-pos_annotated_rb <- udpipe(x = text_rb, object =udmodel)
-pos_annotated_metal <- udpipe(x = text_metal, object =udmodel)
-pos_annotated_folk <- udpipe(x = text_folk, object =udmodel)
-pos_annotated_country <- udpipe(x = text_country, object =udmodel)
-
-pos_annotated_pop["genre"] <- "Pop"
-pos_annotated_rock["genre"] <- "Rock"
-pos_annotated_jazz["genre"] <- "Jazz"
-pos_annotated_country["genre"] <- "Country"
-pos_annotated_folk["genre"] <- "Folk"
-pos_annotated_metal["genre"] <- "Metal"
-pos_annotated_indie["genre"] <- "Indie"
-pos_annotated_hiphop["genre"] <- "Hip-Hop"
-pos_annotated_rb["genre"] <- "R&B"
-pos_annotated_electro["genre"] <- "Electronic"
-
-all_data <- Merge(all_data, pos_annotated_rock)
-View(all_data)
-#x <- udpipe_annotate(udmodel_english, pos_annotated = text)
-pos_annotated_df <- as.data.frame(all_data)
-
-#pos_annotated
-View(pos_annotated_df)
-names(pos_annotated)
-table(pos_annotated$upos)
-
-
-source_tidy_upos <- pos_annotated_df %>%
-  select(genre, upos) %>%
-  group_by(genre, upos) %>%
-  filter(upos == "NOUN" | upos == "ADV" | upos == "VERB" | upos == "ADJ") %>% #choose only the nouns
-  mutate(total_verb = length(upos["VERB"])) %>%
-  summarize(sum_verb = sum(total_verb))
-
-
-source_tidy_upos <- pos_annotated_df %>%
-  select(genre, upos) %>%
-  group_by(genre, upos) %>%
-  #filter(upos == "NOUN" & genre == "Country") %>% 
-  filter(upos == "NOUN" | upos == "ADV" | upos == "VERB" | upos == "ADJ") %>% #choose only the nouns
-  mutate(total_verb = length(upos[1])) %>%
-  summarize(sum_verb = sum(total_verb))
-
-total_mean_pos <- source_tidy_upos %>%
-  select(genre, upos, sum_verb) %>%
-  #filter(song == "00000-million" | song == "1-trillion-dollar")%>%
-  group_by(genre, upos) %>%
-  summarize(total_mean = sum_verb/100)
-
-View(total_mean_pos)
-
-#Data Split
-training_count_wordline <- total_mean_pos
-testing_count_wordline <- test_total_mean_words_per_line
-View(training_count_wordline)
-#Train our model
-train_dat = data.frame(total_mean_pos)
-test_dat = data.frame(x=testing_count_wordline$total_mean, y=as.factor(testing_count_wordline$genre))
-View(train_dat)
-
-trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
-
-svm_Linear_pos <- train(genre ~., data = train_dat, method = "svmLinear",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneLength = 10)
-
-svm_Linear_pos
-
-#Predict our model with test dataset
-test_pred_words_per_line <- predict(svm_Linear_words_per_line, test_dat)
-
-#how accurate is our modelPredicting the results
-mat_count_wordline <- confusionMatrix(test_pred_words_per_line, test_dat$y)
-mat_count_wordline$overall
-mat_count_wordline$table
-
+#traceback()
 ```

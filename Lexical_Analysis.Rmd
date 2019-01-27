@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(readxl)  # to read Excel files
+library(readxl) 
 library(stringr)
 library(writexl)
 library(purrr)
@@ -18,14 +18,14 @@ library(e1071)
 library(ggplot2)
 library(tibble)
 library(cleanNLP)
-library(reticulate)
 library(caret)
 library(RTextTools)
 library(readxl)
 library(stringr)
 library(tidyr)
 ```
-Read the file
+
+Retrieve Data
 ```{r lyr}
 setwd("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data")
 cleaned_data = read_excel("cleaned_data_no_duplicate.xlsx")
@@ -111,7 +111,7 @@ total_count_words_div <- tidy_count_words_lex_div %>%
     select(song, genre, n) %>%
     group_by(song, genre) %>%
     summarize(total_words = length(n))
-View(total_count_words_div)
+
 test_tidy_count_words_lex <- test_source %>%
     unnest_tokens(word, lyrics) %>%
     filter(!word %in% undesirable_words) %>%
@@ -132,7 +132,8 @@ lex_diversity_per_genre_div <- tidy_count_words_lex_div %>%
     group_by(genre) %>%
     summarize(total_mean_lex = mean(lex_diversity))
 
-total_count_mean_words_div <- left_join(total_count_words_div, lex_diversity_per_genre_div)
+total_count_mean_words_div <- left_join(total_count_words_div, 
+                                        lex_diversity_per_genre_div)
 
 test_lex_diversity_per_genre_div <- test_tidy_count_words_lex %>%
     select(song, word, genre, n) %>%
@@ -141,7 +142,8 @@ test_lex_diversity_per_genre_div <- test_tidy_count_words_lex %>%
     group_by(genre) %>%
     summarize(total_mean_lex = mean(test_lex_diversity))
 
-test_total_count_mean_words_div <- left_join(test_total_count_words, test_lex_diversity_per_genre_div)
+test_total_count_mean_words_div <- left_join(test_total_count_words, 
+                                        test_lex_diversity_per_genre_div)
 
 #4. Define the training and testing data
 training_count_words_div <- total_count_mean_words_div
@@ -155,10 +157,11 @@ trctrl <- trainControl(method = "repeatedcv",
 set.seed(123)
 
 #6. Train the model
-svm_Linear_div <- train(genre ~ total_words + total_mean_lex, data = training_count_words_div, method = "svmLinear",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneLength = 10)
+svm_Linear_div <- train(genre ~ total_words + total_mean_lex, 
+                  data = training_count_words_div, method = "svmLinear",
+                  trControl=trctrl,
+                  preProcess = c("center", "scale"),
+                  tuneLength = 10)
 svm_Linear_div
 
 #7. Predict the model with testing dataset

@@ -13,24 +13,21 @@ library(stringr)
 library(e1071)
 library(ggplot2)
 library(tibble)
-library(cleanNLP)
-library(reticulate)
 library(caret)
 library(RTextTools)
 library(readxl)
-library(stringr)
 library(tidyr)
-library("tm")
-library("lsa") #courpus
-library(purrr)
+library(purrr) #To sample
 library(lessR) #Merge function
-
-setwd("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data")
-cleaned_data = read_excel("cleaned_data_no_duplicate.xlsx")
-
 ```
 
-Class Distribution 
+Retrieve Data
+```{r}
+setwd("C:/Users/Sarasati Palawita/Documents/Personal/BIPM 2017/Master Thesis 2018/Data")
+cleaned_data = read_excel("cleaned_data_no_duplicate.xlsx")
+```
+
+Genre Distribution 
 ```{r}
 barplot(prop.table(table(cleaned_data$genre)),
         col = rainbow(2),
@@ -79,9 +76,8 @@ test_source <- test_data
 ```
 
 Data Conditioning
-```{r lyrics_song$lyrics}
+```{r }
 # function to expand contractions in an English-language source
-
 fix.contractions <- function(doc) {
   # "won't" is a special case as it does not expand to "wo not"
   doc <- gsub("won't", "will not", doc)
@@ -98,7 +94,6 @@ fix.contractions <- function(doc) {
 }
 train_source$lyrics <- sapply(train_source$lyrics, fix.contractions)
 test_source$lyrics <- sapply(test_source$lyrics, fix.contractions)
-
 ```
 
 To get rid of special characters
@@ -128,8 +123,8 @@ undesirable_words <- c("chorus", "lyrics", "intro", "clichÃfÂ©s", "alright",
                        "matic", " ai ", " ca ", " la ", " na ", 
                        " da ", " uh ", " tin ", "  ll", "transcription", "YoncÃfÂ©", "BeyoncÃfÂ©")
 ```
-N-gram
-###Unigram
+
+Tokenization
 ```{r}
 #1. Unigrams - Tokenization
 train_sources_tidy_unigrams <- train_source %>%
@@ -169,26 +164,13 @@ test_top100 <- test_sources_tidy_unigrams %>%
     filter(len_word > 99) %>%
     arrange(desc(tf_idf))
 
-View(top100)
-          #How many words per song
-          hh <- top100 %>%
-            select(genre, song, ids, word) %>%
-            group_by(song) %>%
-            mutate(ni = length(word)) 
-          
-          #How many songs per genre
-          song_per_genre <- top100 %>%
-            select(genre) %>%
-            group_by(genre) %>%
-            mutate(ni = length(song))
-          
-            View(hh)
-
 #3. Retrieve the Top 100 tf_idf 
+          
 data <- top100
 training_data <- top100 %>%
   count(song, ids, genre, word, tf, idf, tf_idf) %>%
   group_by(genre) %>% 
+  arrange(desc(tf_idf)) %>%
   top_n(n = 100, wt = tf_idf) %>%
   nest() %>%            
   mutate(n = c(100)) %>% 
@@ -201,57 +183,62 @@ test_data <- test_top100 %>%
   count(song, ids, genre, word, song, n, tf, idf, tf_idf) %>%
   group_by(genre) %>% 
   top_n(n = 100, wt = tf_idf) %>% 
-nest() %>%            
+  nest() %>%            
   mutate(n = c(45)) %>% 
   mutate(samp = map2(data, n, sample_n)) %>% 
   select(genre, samp) %>%
   unnest()
 
-#-------------#
-#-----tf_idf value - Mean per song------#
-train_sources_tidy_mean <- train_sources_tidy_unigrams %>%
-  group_by(song, genre) %>%
-  summarize(mean_tf_idf = mean(tf_idf))
-
-test_sources_tidy_mean <- test_sources_tidy_unigrams %>%
-  group_by(song, genre) %>%
-  summarize(mean_tf_idf = mean(tf_idf))
-
-#Define the x and y for training and testing data
-#Below are the data for mean n-grams value
-training = data.frame(x=train_sources_tidy_mean$tf_idf, y=as.factor(train_sources_tidy_mean$genre))
-testing = data.frame(x=test_sources_tidy_mean$tf_idf, y=as.factor(test_sources_tidy_mean$genre))
-#-------------End of mean--------------#
-#-------------#
-
 #4. Define the x and y for training and testing data
-#Below are the data for Top 100 value
 training = data.frame(x=training_data$tf_idf, y=as.factor(training_data$genre))
 testing = data.frame(x=test_data$tf_idf, y=as.factor(test_data$genre))
-View(testing)
+
 #5. Run Cross-Validation
 trctrl <- trainControl(method = "repeatedcv",
                        number = 10, 
                        repeats = 3, 
                        verboseIter = FALSE)
+
 set.seed(123)
 
 #6. Train the model
-svm_Linear <- train(y ~., data = training, method = "svmLinear",
+svm_tfidf_uni <- train(y ~., data = training, method = "rbf",
                  trainControl=trctrl,
-                 preProcess = c("center"),
+                 preProcess = c("center", "scale"),
                  tuneLength = 10)
-svm_Linear
+svm_tfidf_uni
 
 #7. Predict the model with testing dataset
-
 test_pred <- predict(svm_Linear, testing)
 
 #8. Check the model accuracy with confusion matrix
-
 cm <- confusionMatrix(test_pred, testing$y)
 cm$overall
 cm$table
+
+#EXTRA
+#Boxplot
+tf_idf <- training_data$tf_idf
+tf_idf_test <- test_data$tf_idf
+lexical_diversity <- data.frame(tf_idf,tf_idf_test)
+boxplot(tf_idf)
+
+#tf_idf score
+training_data %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, tf_idf), fill = "steelblue", alpha = 0.1) +
+  labs(y = "tf-idf unigram", x = "Music Genre", 
+       title = "Length of tf-idf unigram", 
+       subtitle = " ")+
+  ylim(0,0.3 )
+
+test_data %>% 
+  ggplot() +
+  geom_boxplot(aes(genre, tf_idf), fill = "steelblue", alpha = 0.7) +
+  labs(y = "tf-idf unigram", x = "Music Genre", 
+       title = "Length of tf-idf unigram", 
+       subtitle = " ")+
+  ylim(0, 600)
 
 ```
 
@@ -268,7 +255,6 @@ train_sources_tidy_bigrams <- train_source %>%
   ungroup() %>%
   bind_tf_idf(word, genre, n) %>%
   arrange(desc(tf_idf))
-#View(train_sources_tidy_bigrams)
 
 test_sources_tidy_bigrams <- test_source %>%
   unnest_tokens(word, lyrics, token = "ngrams", n = 2) %>%
@@ -281,18 +267,6 @@ test_sources_tidy_bigrams <- test_source %>%
   bind_tf_idf(word, genre, n) %>%
   arrange(desc(tf_idf))
 
-            "#TF_IDF - Tf_idf > 0
-            train_sources_tidy_big0 <- train_sources_tidy_bigrams %>%
-              filter(tf_idf > 0)
-            
-              #To check how many words per genre
-              train_sources_tidy_big0 %>%
-                group_by(genre) %>%
-                summarize(genreto = length(genre)) "
-  
-            "test_sources_tidy_big0 <- train_sources_tidy_bigrams %>%
-              filter(tf_idf > 0)
-"
 #2. Get the song which has more than 99 words - Top 100 tf_idf value per song
 top100_bi <- train_sources_tidy_bigrams %>%
     count(song, genre, word, song, tf, idf, tf_idf) %>%
@@ -329,27 +303,7 @@ test_data_bi <- test_sources_tidy_bigrams %>%
   select(genre, samp) %>%
   unnest()
 
-#-------------#
-#-----tf_idf value - Mean per song------#
-train_sources_tidy_mean_bigrams <- train_sources_tidy_bigrams %>%
-  group_by(song, genre) %>%
-  filter(tf_idf > 0) %>%
-  summarize(mean_tf_idf = mean(tf_idf))
-
-test_sources_tidy_mean_bigrams <- test_sources_tidy_bigrams %>%
-  group_by(song, genre) %>%
-  filter(tf_idf > 0) %>%
-  summarize(mean_tf_idf = mean(tf_idf))
-
-#4. efine the x and y for training and testing data
-#Below are the data for mean n-grams value
-training = data.frame(x=train_sources_tidy_mean_bigrams$mean_tf_idf, y=as.factor(train_sources_tidy_mean_bigrams$genre))
-testing = data.frame(x=test_sources_tidy_mean_bigrams$mean_tf_idf, y=as.factor(test_sources_tidy_mean_bigrams$genre))
-#-------------End of mean--------------#
-#-------------#  
-
 #4. Define the x and y for training and testing data
-#Below are the data for Top 100 value
 training_bi = data.frame(x=training_data_bi$tf_idf, y=as.factor(training_data_bi$genre))
 testing_bi = data.frame(x=test_data_bi$tf_idf, y=as.factor(test_data_bi$genre))
 
@@ -360,15 +314,14 @@ trctrl <- trainControl(method = "repeatedcv",
                        verboseIter = FALSE)
 
 #6. Train the model
-svm_Linear_bi <- train(y~., data = training_bi, method = "svmLinear",
+svm_tfidf_bi <- train(y~., data = training_bi, method = "svmLinear",
                  trainControl=trctrl,
                  preProcess = c("center", "scale"),
                  tuneLength = 10)
-svm_Linear_bi
+svm_tfidf_bi
 
 #7. Predict the model with test dataset
 test_pred_bi <- predict(svm_Linear_bi, testing_bi)
-
 
 #8. Check the model accuracy with confusion matrix
 cm <- confusionMatrix(test_pred_bi, testing_bi$y)
@@ -390,7 +343,6 @@ train_sources_tidy_trigrams <- train_source %>%
   ungroup() %>%
   bind_tf_idf(word, genre, n) %>%
   arrange(desc(tf_idf))
-#View(train_sources_tidy_bigrams)
 
 test_sources_tidy_trigrams <- test_source %>%
   unnest_tokens(word, lyrics, token = "ngrams", n = 2) %>%
@@ -439,25 +391,6 @@ test_data_tri <- test_sources_tidy_trigrams %>%
   select(genre, samp) %>%
   unnest()
 
-#-------------#
-#-----tf_idf value - Mean per song------#
-train_sources_tidy_mean_trigrams <- train_sources_tidy_trigrams %>%
-  group_by(song, genre) %>%
-  filter(tf_idf > 0) %>%
-  summarize(mean_tf_idf = mean(tf_idf))
-
-test_sources_tidy_mean_trigrams <- test_sources_tidy_trigrams %>%
-  group_by(song, genre) %>%
-  filter(tf_idf > 0) %>%
-  summarize(mean_tf_idf = mean(tf_idf))
-
-#4. efine the x and y for training and testing data
-#Below are the data for mean n-grams value
-training_tri = data.frame(x=train_sources_tidy_mean_bigrams$mean_tf_idf, y=as.factor(train_sources_tidy_mean_bigrams$genre))
-testing_tri = data.frame(x=test_sources_tidy_mean_bigrams$mean_tf_idf, y=as.factor(test_sources_tidy_mean_bigrams$genre))
-#-------------End of mean--------------#
-#-------------#  
-
 #4. Define the x and y for training and testing data
 #Below are the data for Top 100 value
 training_tri = data.frame(x=training_data_tri$tf_idf, y=as.factor(training_data_tri$genre))
@@ -470,15 +403,14 @@ trctrl <- trainControl(method = "repeatedcv",
                        verboseIter = FALSE)
 
 #6. Train the model
-svm_Linear_tri <- train(y~., data = training_tri, method = "svmLinear",
+svm_tfidf_tri <- train(y~., data = training_tri, method = "svmLinear",
                  trainControl=trctrl,
                  preProcess = c("center", "scale"),
                  tuneLength = 10)
-svm_Linear_tri
+svm_tfidf_tri
 
 #7. Predict the model with test dataset
 test_pred_bi <- predict(svm_Linear_bi, testing_bi)
-
 
 #8. Check the model accuracy with confusion matrix
 cm <- confusionMatrix(test_pred_tri, testing_tri$y)
